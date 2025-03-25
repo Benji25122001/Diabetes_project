@@ -1,0 +1,259 @@
+---
+title: "Projet Biostatistique Croisille, Détré"
+date: '`r Sys.Date()`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(echo = TRUE, fig.height=7, fig.width=8)
+library(reshape2)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(glmnet)
+rm(list=ls())
+getwd()
+```
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# On récupère le fichier.csv
+df=read.csv("C:/Users/BENJAMIN/Desktop/Travail/Biostatistiques/Biostat/diabetes.csv", header = FALSE, sep=',')
+# On le sépare en plusieurs colonnes 
+df=subset(df, row.names(df) != 1)
+df_nouveau=as.data.frame(do.call(rbind, strsplit(as.character(df$V1), ",")))
+colnames(df_nouveau)=c("X", "pregnant", "glucose", "pressure", "triceps", "insulin", "mass", "pedigree", "age", "diabetes")
+df_nouveau=subset(df_nouveau, select = -X)
+df=df_nouveau
+# En transforme les donnés au format character en entier et nombre réels
+df[,1:5]=as.data.frame(lapply(df[,1:5], as.integer))
+df[,6:7]=as.data.frame(lapply(df[,6:7], as.double))
+df$age=as.integer(df$age)
+```
+
+# 0 Prétraitement des données #
+\textbf{Question 0.1}
+
+Pour compléter des données manquantes nous avons plusieurs outils à disposition et principalement des outils statistiques. La façon la plus simple est par exemple d'utiliser la moyenne ou la médiane de notre colonne pour compléter toutes les valeurs manquantes. L'avantage de cette technique est qu'elle ne va pas modifier la moyenne initiale de notre colonne. Une autre façon est de générer un nombre aléatoire compris entre la valeur min et la valeur max de notre colonne de données. Cette technique permet de diversifier nos données. Par la suite nous utiliserons la moyenne pour compléter nos données.
+
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Pour compléter les données manquante on remplace les NA par la moyenne de chaque colonne correspondante
+df$pregnant=ifelse(is.na(df$pregnant), floor(mean(df$pregnant, na.rm = TRUE)), df$pregnant)
+df$glucose=ifelse(is.na(df$glucose), floor(mean(df$glucose, na.rm = TRUE)), df$glucose)
+df$pressure=ifelse(is.na(df$pressure), floor(mean(df$pressure, na.rm = TRUE)), df$pressure)
+df$triceps=ifelse(is.na(df$triceps), floor(mean(df$triceps, na.rm = TRUE)), df$triceps)
+df$insulin=ifelse(is.na(df$insulin), floor(mean(df$insulin, na.rm = TRUE)), df$insulin)
+df$mass=ifelse(is.na(df$mass), mean(df$mass, na.rm = TRUE), df$mass)
+```
+
+# 1 Analyse exploratoire des données #
+\textbf{Question 1.1}
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Visualisation des moyennes pour les groupes diabétique et non-diabétique
+X=df[,-9]
+y=df[,9]
+apply(X, 2, function(x) tapply(x, list(y), mean))
+
+# Boîtes à moustache 
+df2=melt(df, id = "diabetes") 
+ggplot(data = df2, aes(x = diabetes, y = value, color = diabetes)) + 
+  geom_boxplot(col = "black", show.legend = FALSE, outlier.colour = NA) + theme_bw() +
+  geom_point(shape = 1, 
+             position = position_jitterdodge(dodge.width = .6, 
+                                             jitter.width = .8), 
+             size = 1.8, alpha = 1, show.legend = FALSE) +
+  facet_wrap(. ~ variable, scales = "free") +
+  theme(strip.background = element_rect(colour = "black", fill = "white"),
+        strip.text.x = element_text(size = 11),
+        axis.text = element_text(size = 9), axis.title = element_text(size = 0),
+        legend.position = "bottom") + xlab("") + ylab("") +
+  scale_color_manual(values = c("firebrick3", "springgreen4"))
+
+# Test des différences significatives entre les diabétiques et les non-diabétiques pour chaque variable axplicative
+t.test(pregnant ~ diabetes, data = df)
+t.test(glucose ~ diabetes, data = df)
+t.test(pressure ~ diabetes, data = df)
+t.test(triceps ~ diabetes, data = df)
+t.test(insulin ~ diabetes, data = df)
+t.test(mass ~ diabetes, data = df)
+t.test(pedigree ~ diabetes, data = df)
+t.test(age ~ diabetes, data = df)
+```
+D'après les boîtes à moustache on remarque qu'il ne semble pas y avoir de différences significatives entre les médianes des groupes diabétique et non-diabétique pour les facteurs pedigree, insulin, pressure et triceps. Les différences entre les médianes sont plus significatives pour age, mass, glucose et pregnant. De plus les valeurs sont très groupées pour insulin et triceps tandis qu'elle le sont moins pour les autres facteurs de risque.
+
+Nos données étants toutes quantitatives on effectue uniquement des tests de Student.
+Interprétation des résultats:
+-Pour la variable pregnant, le test de Student nous sort une p-value=6.822e-09<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable pregnant.
+-Pour la variable glucose, le test de Student nous sort une p-value=2.2e-16<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable glucose.
+-Pour la variable pressure, le test de Student nous sort une p-value=4.202e-06<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable pressure.
+-Pour la variable triceps, le test de Student nous sort une p-value=2.472e-09<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable triceps.
+-Pour la variable insulin, le test de Student nous sort une p-value=2.794e-08<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable insulin.
+-Pour la variable mass, le test de Student nous sort une p-value=2.2e-16<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable mass.
+-Pour la variable pedigree, le test de Student nous sort une p-value=6.1e-06<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable pedigree.
+-Pour la variable age, le test de Student nous sort une p-value=1.202e-11<0.05 donc on peut dire qu'il y a une différence significative entre les moyennes des groupes diabétique et non-diabétique par rapport à la variable age.
+
+\textbf{Question 1.2}
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Standardisation des données (permet de mettre sur la même échelle tous nos facteurs de risques)
+df_standardise=as.data.frame(scale(X))
+
+# Analyse en composantes principales
+acp_resultats=prcomp(X, scale = TRUE)
+plot(acp_resultats)
+summary(acp_resultats)
+biplot(acp_resultats)
+```
+Tout d'abord d'après le premier graphique (pourcentage de la variance expliquée pour chaque composante principale), on remarque que les composantes principales les plus importantes sont PC1 et PC2 car elle comporte le plus gros pourcentage d'explication de la variance dans notre jeu de données. 
+Nous allons donc réaliser un biplot dans l'espace générer âr les composantes PC1 et PC2. On remarque ainsi une corrélation positive (angle entre les flèches) entre les variables age et pregnant, glucose et insulin et triceps et mass. Les variable age et mass semblent quand à elles non-corrélées (angle de 90° entre les flèches). De plus les données (points noirs sur le biplot) sont toutes bien regroupés donc on ne peut à priori pas faire de sous groupes dans les données. On remarque aussi que une grande partie des données est éloignée des flèches ce qui indiquent qu'elles n'ont pas de valeurs élevées pour les variables correspondantes. Enfin les flèches les plus longues (age, mass et pregnant) représentent des variables importantes dans la structure des données.
+
+# 2 Prédiction par régression logistique #
+\textbf{Question 2.1}
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Transformation de la colonne diabetes en données binaires
+df_binaire=df
+df_binaire$diabetes[df_binaire$diabetes=='\"pos\"']='0'
+df_binaire$diabetes[df_binaire$diabetes=='\"neg\"']='1'
+df_binaire$diabetes=as.integer(df_binaire$diabetes)
+
+modele_logistique=glm(diabetes~pregnant+glucose+pressure+triceps+insulin+mass+pedigree+age, data = df_binaire, family = "binomial")
+
+# Afficher les résultats du modèle
+summary(modele_logistique)
+
+# Diviser les données en ensemble d'entraînement et de test
+train_indices=sample(1:nrow(df_binaire), 0.8 * nrow(df_binaire))
+train_data=df_binaire[train_indices, ]
+test_data=df_binaire[-train_indices, ]
+
+# Prédictions sur l'ensemble de test
+predictions_logistique=predict(modele_logistique, newdata = test_data, type = "response")
+
+# Évaluation du modèle
+predicted_classes_logistique=ifelse(predictions_logistique > 0.5, 1, 0)
+confusion_matrix_logistique=table(predicted_classes_logistique, test_data$diabetes)
+accuracy_logistique=sum(diag(confusion_matrix_logistique))/sum(confusion_matrix_logistique)
+
+
+print("Régression logistique:")
+print(confusion_matrix_logistique)
+print(paste("Accuracy:", accuracy_logistique))
+```
+D'après les résultats de la régression logistique, on peut conclure que la variable diabetes est fortement liée aux variables pregnant, glucose, mass et pedigree (test significatif avec p-value<0.001). De plus on observe que les performances du modèle ne sont pas optimales, nous allons donc essayer de les améliorer par une régression logistique pénalisée.
+
+\textbf{Question 2.2}
+On s'intéresse maintenant à un modèle de régression logistique pénalisée l1+l2. Le problème d'optimisation est alors :
+$$ \hat{\beta}^{l_1+l_2} = \text{arg}\min_{\beta} \left( \|\mathbf{y} - \mathbf{X}\beta\|_2^2 + \lambda_1 \|\beta\|_1 + \lambda_2 \|\beta\|_2^2 \right) $$
+On pose $$ \mathcal{L}=\left (\|\mathbf{y} - \mathbf{X}\beta\|_2^2 + \lambda_1 \|\beta\|_1 + \lambda_2 \|\beta\|_2^2 \right)\\
+\mathcal{L}=\mathbf{y}^\top\mathbf{y}-2\beta^\top\mathbf{X}^\top\mathbf{y}+\beta^\top\mathbf{X}^\top\mathbf{X}\beta+\lambda_1\sum_{k=1}^p|\beta_k|+\lambda_2\beta^\top\beta\\
+\text{On pose: }\mathbf{X}^\top\mathbf{X}=\mathbf{I}\\
+\mathcal{L}=\mathbf{y}^\top\mathbf{y}-2\beta^\top\mathbf{X}^\top\mathbf{y}+\lambda_1\sum_{k=1}^p|\beta_k|+(1+\lambda_2)\beta^\top\beta\\
+\mathcal{L}=\mathbf{y}^\top\mathbf{y}+\sum_{k=1}^p(-2\beta_k[\mathbf{X}^\top\mathbf{y}]_k+(1+\lambda_2)\beta_k^2+\lambda_1|\beta_k|)\\
+\text{Or on a: }[\mathbf{X}^\top\mathbf{y}]_k=\hat{\beta}_k^{OLS}\\
+\mathcal{L}=\mathbf{y}^\top\mathbf{y}+\sum_{k=1}^p(-2\beta_k\hat{\beta}_k^{OLS}+(1+\lambda_2)\beta_k^2+\lambda_1|\beta_k|)\\
+$$
+On passe alors à une minimisation par rapport à $$\beta_k$$. D'où le problème d'optimisation devient:
+$$ \hat{\beta}_k^{l_1+l_2}=\text{arg}\min_{\beta_k}-2\beta_k\hat{\beta}_k^{OLS}+(1+\lambda_2)\beta_k^2+\lambda_1|\beta_k|$$
+Etudions les différents cas possibles
+$$\text{-}\text{Si }\hat{\beta}_k^{OLS}\in[0;\frac{\lambda_1}{2}]\text{, }\\
+\forall\beta_k\text{ }\lambda_1|\beta_k|-2\beta_k\hat{\beta}_k^{OLS}+(1+\lambda_2)\beta_k^2\geq 0\\
+\text{Donc dans ce cas }\hat{\beta}_k^{l_1+l_2}=0\\
+\text{-}\text{Si }\hat{\beta}_k^{OLS}>\frac{\lambda_1}{2}\text{, }\\
+-2\beta_k\hat{\beta}_k^{OLS}<0\text{ si }\beta_k>0\text{ et }\forall\beta_k\text{ }\lambda_1|\beta_k|+(1+\lambda_2)\beta_k^2\geq 0\\
+\text{Donc dans ce cas }\hat{\beta}_k^{l_1+l_2}>0\\
+\text{-}\text{Si }\hat{\beta}_k^{OLS}\in[-\frac{\lambda_1}{2};0]\text{, }\\
+\lim_{\beta_k \to \pm \infty} \lambda_1|\beta_k|-2\beta_k\hat{\beta}_k^{OLS}+(1+\lambda_2)\beta_k^2=+\infty\\
+\text{Donc dans ce cas }\hat{\beta}_k^{l_1+l_2}=0\\
+\text{-}\text{Si }\hat{\beta}_k^{OLS}<-\frac{\lambda_1}{2}\text{, }\\
+-2\beta_k\hat{\beta}_k^{OLS}<0\text{ si }\beta_k<0\text{ et }\forall\beta_k\text{ }\lambda_1|\beta_k|+(1+\lambda_2)\beta_k^2\geq 0\\
+\text{Donc dans ce cas }\hat{\beta}_k^{l_1+l_2}>0\\
+$$
+On connait alors le signe de $$\hat{\beta}_k^{l_1+l_2}$$ en fonction de la valeur de $$\hat{\beta}_k^{OLS}$$. Maintenant nous allons minimiser le terme :$$\mathcal{L}_k=-2\beta_k\hat{\beta}_k^{OLS}+(1+\lambda_2)\beta_k^2+\lambda_1|\beta_k|$$
+On calcule:
+$$
+\frac{\partial \mathcal{L}_k}{\partial \beta_k}=-2\hat{\beta}_k^{OLS}+2(1+\lambda_2)\beta_k+\lambda_1sign(\beta_k)\\
+\frac{\partial \mathcal{L}_k}{\partial \beta_k}=0\Rightarrow\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}-\lambda_1sign(\hat{\beta}_k^{l_1+l_2})}{2(1+\lambda_2)}\\
+\text{-}\text{Si }\hat{\beta}_k^{l_1+l_2}>0\Rightarrow\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}-\lambda_1}{2(1+\lambda_2)}\\
+\text{-}\text{Si }\hat{\beta}_k^{l_1+l_2}<0\Rightarrow\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}+\lambda_1}{2(1+\lambda_2)}\\
+\text{D'où }\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}-\lambda_1}{2(1+\lambda_2)}\mathbb{I}_{(\hat{\beta}_k^{OLS}>\frac{\lambda_1}{2})}+\frac{2\hat{\beta}_k^{OLS}+\lambda_1}{2(1+\lambda_2)}\mathbb{I}_{(\hat{\beta}_k^{OLS}<-\frac{\lambda_1}{2})}\\
+\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}-sign(\hat{\beta}_k^{l_1+l_2})\lambda_1}{2(1+\lambda_2)}\mathbb{I}_{(|\hat{\beta}_k^{OLS}|>\frac{\lambda_1}{2})}\\
+\lambda_1>0\text{ d'où }sign(\hat{\beta}_k^{l_1+l_2})=sign(\hat{\beta}_k^{OLS})\\
+\hat{\beta}_k^{l_1+l_2}=\frac{2\hat{\beta}_k^{OLS}-sign(\hat{\beta}_k^{OLS})\lambda_1}{2(1+\lambda_2)}\mathbb{I}_{(|\hat{\beta}_k^{OLS}|>\frac{\lambda_1}{2})}\\
+\hat{\beta}_k^{l_1+l_2}=\frac{sign(\hat{\beta}_k^{OLS})}{1+\lambda_2}(|\hat{\beta}_k^{OLS}|-\frac{\lambda_1}{2})\mathbb{I}_{(|\hat{\beta}_k^{OLS}|>\frac{\lambda_1}{2})}\\
+\hat{\beta}_k^{l_1+l_2}=\frac{sign(\hat{\beta}_k^{OLS})}{1+\lambda_2}max(0;|\hat{\beta}_k^{OLS}|-\frac{\lambda_1}{2})
+$$
+On retrouve bien l'expression: $$\hat{\beta}_k=\frac{max(0;|\hat{\beta}_k^{OLS}|-\frac{\lambda_1}{2})}{1+\lambda_2}sign(\hat{\beta}_k^{OLS})$$
+
+\textbf{Question 2.3}
+La pénalisationn l1+l2 induit un caractère parcimonieux car elle associe les avantages de deux pénalisations (Lasso et Ridge) pour avoir un modèle ayant le moins de coefficients non-nuls. Ainsi d'une part la régression Lasso va favoriser la parcimonie en ajoutant la somme des valeurs absolue à la fonction de coût à optimiser. Cela aura pour effet de pousser certains coefficients à être nul ce qui donnera plus de poids aux caractéristiques importantes. D'autre part la régression Ridge va stabiliser les coefficients et éviter la multicollinéarité (c'est-à-dire les corrélations entre les coefficients). Elle va permettre de réduire le poids des caractéristiques qui ont le moins d'impact sur le modèle.
+
+\textbf{Question 2.4}
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Diviser les données en ensembles d'entraînement et de test
+train_indices=sample(1:nrow(df_binaire), 0.8 * nrow(df_binaire))
+train_data=df_binaire[train_indices, ]
+test_data=df_binaire[-train_indices, ]
+
+# Séparer la variable cible (diabetes) 
+x_train=as.matrix(train_data[,-9])
+y_train=train_data$diabetes
+x_test=as.matrix(test_data[,-9])
+y_test=test_data$diabetes
+
+# Optimisation des paramètres par validation croisée
+cv_fit=cv.glmnet(x_train, y_train, family="binomial", alpha=0.5)
+
+# Sélection du meilleur modèle selon la validation croisée
+best_model=glmnet(x_train, y_train, family="binomial", alpha=0.5, lambda=cv_fit$lambda.min)
+
+# Prédiction sur l'ensemble de test du modèle pénalisé l1+l2
+predictions=predict(best_model, newx = x_test, type = "response")
+
+# Évaluer la performance du modèle pénalisé l1+l2
+confusion_matrix_glmnet=table(ifelse(predictions > 0.5, 1, 0), y_test)
+accuracy_glmnet=sum(diag(confusion_matrix_glmnet))/sum(confusion_matrix_glmnet)
+precision_glmnet=confusion_matrix_glmnet[2, 2]/sum(confusion_matrix_glmnet[, 2])
+recall_glmnet=confusion_matrix_glmnet[2, 2]/sum(confusion_matrix_glmnet[2, ])
+f1_score_glmnet=2*(precision_glmnet*recall_glmnet)/(precision_glmnet+recall_glmnet)
+
+# Affichage des indicateurs de qualité
+print("Régression logistique pénalisée l1 + l2:")
+print(confusion_matrix_glmnet)
+print(paste("Accuracy:", accuracy_glmnet))
+print(paste("Precision:", precision_glmnet))
+print(paste("Recall:", recall_glmnet))
+print(paste("F1 Score:", f1_score_glmnet))
+```
+Les variables qui semblent les plus pertinentes sont les variables mass, insulin, glucose et pedigree (d'après la \textbf{Question 2.1}).
+
+\textbf{Question 2.5}
+```{r, echo = TRUE, fig.cap="Data Visualisation", fig.align='default', fig.height=5, fig.width=10}
+# Appliquer la sélection de variables pas-à-pas
+step_model=step(modele_logistique)
+
+# Prédiction sur l'ensemble de test
+predictions_step=predict(step_model, newdata = test_data, type = "response")
+
+# Évaluer la performance du modèle
+confusion_matrix_step=table(ifelse(predictions_step > 0.5, 1, 0), test_data$diabetes)
+accuracy_step=sum(diag(confusion_matrix_step)) / sum(confusion_matrix_step)
+precision_step=confusion_matrix_step[2, 2] / sum(confusion_matrix_step[, 2])
+recall_step=confusion_matrix_step[2, 2] / sum(confusion_matrix_step[2, ])
+f1_score_step=2*(precision_step * recall_step) / (precision_step + recall_step)
+
+# Comparaison des résultats 
+
+print("Régression logistique pénalisée l1 + l2:")
+print(confusion_matrix_glmnet)
+print(paste("Accuracy:", accuracy_glmnet))
+print(paste("Precision:", precision_glmnet))
+print(paste("Recall:", recall_glmnet))
+print(paste("F1 Score:", f1_score_glmnet))
+
+print("Régression logistique pas-à-pas:")
+print(confusion_matrix_step)
+print(paste("Accuracy:", accuracy_step))
+print(paste("Precision:", precision_step))
+print(paste("Recall:", recall_step))
+print(paste("F1 Score:", f1_score_step))
+
+```
+\textbf{Question 2.6}
+L'utilisation d'une méthode pas-à-pas ou d'une méthode de régression pénalisée va dépendre du contexte des données. Dans le cas d'un modèle simple avec peu de variables, la mise en place d'une méthode de type pas-à-pas sera privilégiée car elle est facile à mettre en oeuvre et plus rapide. Cependant lorsque le nombre de variables est important, il peut être intéressant d'avoir une méthode plus robuste et autonome notamment dans la gestion des multicollinéarité, ce que permet de faire une régression pénalisée l1+l2.
